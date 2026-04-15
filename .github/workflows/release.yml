@@ -30,19 +30,23 @@ jobs:
       - name: Build release app bundle
         run: ./scripts/build_app.sh
 
-      - name: Import signing certificate
-        if: ${{ secrets.APPLE_CERT_P12_BASE64 != '' && secrets.APPLE_CERT_PASSWORD != '' }}
+      - name: Import signing certificate (optional)
         env:
           APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
         run: |
-          echo "$APPLE_CERT_P12_BASE64" | base64 --decode > signing-cert.p12
-          security create-keychain -p "" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import signing-cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security list-keychains -d user -s build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          if [[ -n "${APPLE_CERT_P12_BASE64}" && -n "${APPLE_CERT_PASSWORD}" ]]; then
+            echo "Importing signing certificate."
+            echo "$APPLE_CERT_P12_BASE64" | base64 --decode > signing-cert.p12
+            security create-keychain -p "" build.keychain
+            security set-keychain-settings -lut 21600 build.keychain
+            security unlock-keychain -p "" build.keychain
+            security import signing-cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+            security list-keychains -d user -s build.keychain
+            security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          else
+            echo "No signing certificate secrets found; skipping certificate import."
+          fi
 
       - name: Sign app (Developer ID or ad-hoc)
         env:
@@ -60,22 +64,24 @@ jobs:
       - name: Prepare notarization archive
         run: ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" dist/NyanBar-notary.zip
 
-      - name: Notarize app
-        if: ${{ secrets.APPLE_NOTARY_APPLE_ID != '' && secrets.APPLE_NOTARY_PASSWORD != '' && secrets.APPLE_NOTARY_TEAM_ID != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
+      - name: Notarize + staple app (optional)
         env:
           APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
           APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
           APPLE_NOTARY_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          xcrun notarytool submit dist/NyanBar-notary.zip \
-            --apple-id "$APPLE_NOTARY_APPLE_ID" \
-            --password "$APPLE_NOTARY_PASSWORD" \
-            --team-id "$APPLE_NOTARY_TEAM_ID" \
-            --wait
-
-      - name: Staple notarization ticket
-        if: ${{ secrets.APPLE_NOTARY_APPLE_ID != '' && secrets.APPLE_NOTARY_PASSWORD != '' && secrets.APPLE_NOTARY_TEAM_ID != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
-        run: xcrun stapler staple "$APP_PATH"
+          if [[ -n "${APPLE_NOTARY_APPLE_ID}" && -n "${APPLE_NOTARY_PASSWORD}" && -n "${APPLE_NOTARY_TEAM_ID}" && -n "${APPLE_SIGNING_IDENTITY}" ]]; then
+            echo "Submitting for notarization."
+            xcrun notarytool submit dist/NyanBar-notary.zip \
+              --apple-id "$APPLE_NOTARY_APPLE_ID" \
+              --password "$APPLE_NOTARY_PASSWORD" \
+              --team-id "$APPLE_NOTARY_TEAM_ID" \
+              --wait
+            xcrun stapler staple "$APP_PATH"
+          else
+            echo "Notarization secrets/identity not fully configured; skipping notarization."
+          fi
 
       - name: Package app bundle for release
         run: ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" dist/NyanBar-${TAG_NAME}.zip
