@@ -6,6 +6,7 @@ A tiny macOS menu bar app that animates the original Nyan Cat GIF in your status
 
 - Shows animated Nyan Cat directly in the macOS status bar.
 - Runs fully offline (GIF is bundled into the `.app` at `Contents/Resources/original.gif`).
+- Uses the first frame of Nyan Cat as the app icon (`Contents/Resources/AppIcon.icns`).
 - Adds a menu with:
   - `Reload GIF`
   - `Quit Nyan Bar`
